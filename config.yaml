@@ -1,0 +1,135 @@
+# PHIP Analyzer 配置文件
+
+monitor:
+  # 监控的板块
+  boards:
+    - main   # 主板
+    - gem    # 创业板
+
+  # HKEX 入口 URL（按优先级尝试）
+  sources:
+    main:
+      - "https://www1.hkexnews.hk/app/appindex.html?lang=zh&mk=1"
+      - "https://www2.hkexnews.hk/New-Listings/Application-Proof-and-PHIP/Active/Main-Board?sc_lang=zh-HK"
+    gem:
+      - "https://www1.hkexnews.hk/app/appindex.html?lang=zh&mk=2"
+      - "https://www2.hkexnews.hk/New-Listings/Application-Proof-and-PHIP/Active/GEM?sc_lang=zh-HK"
+
+  # 仅处理 PHIP 还是同时处理 Application Proof
+  document_types:
+    - PHIP        # 聆讯后资料集（推荐）
+    # - AP        # 申请版本（可选）
+
+  # 是否启用 Playwright 作为回退渲染
+  use_playwright_fallback: true
+
+  # User-Agent
+  user_agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15"
+
+downloader:
+  # 下载超时（秒）
+  timeout: 300
+  # 重试次数
+  max_retries: 3
+  # 单文件最大体积（MB）
+  max_file_size_mb: 200
+
+parser:
+  # PDF 解析最大字符数（防止极端文档失控）
+  max_chars: 2_000_000
+  # 启用结构化章节抽取
+  use_toc: true
+  # 中英文章节标题映射
+  section_aliases:
+    business:
+      - "业务"
+      - "業務"
+      - "BUSINESS"
+      - "OUR BUSINESS"
+    industry:
+      - "行业概览"
+      - "行业概况"
+      - "行業概覽"
+      - "行業概況"
+      - "INDUSTRY OVERVIEW"
+    financial:
+      - "财务资料"
+      - "財務資料"
+      - "財務信息"
+      - "FINANCIAL INFORMATION"
+    risk:
+      - "风险因素"
+      - "風險因素"
+      - "RISK FACTORS"
+    use_of_proceeds:
+      - "未来计划及所得款项用途"
+      - "未來計劃及所得款項用途"
+      - "未来计划"
+      - "未來計劃"
+      - "FUTURE PLANS AND USE OF PROCEEDS"
+    history:
+      - "历史、发展及公司架构"
+      - "歷史、發展及公司架構"
+      - "历史及公司架构"
+      - "歷史及公司架構"
+      - "HISTORY, DEVELOPMENT AND CORPORATE STRUCTURE"
+    summary:
+      - "概要"
+      - "概覽"
+      - "SUMMARY"
+    directors:
+      - "董事及高级管理层"
+      - "董事及高級管理層"
+      - "DIRECTORS AND SENIOR MANAGEMENT"
+    regulatory:
+      - "监管概览"
+      - "監管概覽"
+      - "REGULATORY OVERVIEW"
+
+analyzer:
+  # LLM 后端：kimi（默认）/ openai / anthropic
+  # 可被环境变量 LLM_PROVIDER 覆盖
+  provider: "kimi"
+
+  # 主分析模型（深度分析、行业洞察、报告撰写）
+  # Kimi 推荐（已实测可用）：
+  #   - kimi-k2.6：推理模型，叙事/分析质量最好，速度慢、token 多、temperature 锁 1.0（默认）
+  #   - kimi-k2.5：上一代推理模型
+  #   - moonshot-v1-128k：长上下文 128K、非推理、稳定、便宜
+  # Claude 推荐：claude-opus-4-7
+  # OpenAI 推荐：gpt-4o
+  model: "kimi-k2.6"
+
+  # 抽取/分类用的轻量模型
+  light_model: "moonshot-v1-32k"
+
+  # max_tokens
+  max_output_tokens: 8000
+  # 章节并发数
+  concurrency: 3
+  # 是否启用 prompt caching（同一 PHIP 的多次分析复用上下文）
+  use_prompt_caching: true
+
+peer:
+  # 自动识别同业并补充对比
+  enable: true
+  # 每家同业最多检索条数
+  max_peers: 5
+  # 是否调用 web 检索补充同业财务（需配合外部接口）
+  enable_web_lookup: false
+
+report:
+  # 深度：deep / standard / brief
+  depth: "deep"
+  # 输出语言
+  language: "zh-CN"
+  # 报告存放
+  output_dir: "data/reports"
+  # 文件名模板（model_tag 来自 analyzer.model，方便不同模型并存对比）
+  filename_template: "{date}_{stock_code}_{company_short}_{model_tag}_深度研报.docx"
+
+storage:
+  db_path: "data/phip_state.db"
+  pdf_dir: "data/pdfs"
+  cache_dir: "data/cache"
+  log_dir: "logs"
