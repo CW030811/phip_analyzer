@@ -18,7 +18,7 @@ if (-not (Test-Path -LiteralPath $PowerShellExe)) {
 
 $action = New-ScheduledTaskAction `
     -Execute $PowerShellExe `
-    -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$LauncherScript`""
+    -Argument "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$LauncherScript`""
 
 $trigger = New-ScheduledTaskTrigger `
     -Weekly `
