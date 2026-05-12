@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS phip (
     pdf_path TEXT,
     pdf_size_bytes INTEGER,
     pdf_pages INTEGER,
+    active INTEGER NOT NULL DEFAULT 1,
     -- 状态机：DISCOVERED -> DOWNLOADED -> PARSED -> ANALYZED -> REPORTED -> FAILED
     status TEXT NOT NULL DEFAULT 'DISCOVERED',
     report_path TEXT,
@@ -64,6 +65,9 @@ class PhipDB:
     def _init_schema(self) -> None:
         with self.conn() as c:
             c.executescript(SCHEMA)
+            cols = {row["name"] for row in c.execute("PRAGMA table_info(phip)").fetchall()}
+            if "active" not in cols:
+                c.execute("ALTER TABLE phip ADD COLUMN active INTEGER NOT NULL DEFAULT 1")
 
     @staticmethod
     def _now() -> str:
@@ -79,16 +83,50 @@ class PhipDB:
         with self.conn() as c:
             cur = c.execute("SELECT id FROM phip WHERE source_url = ?", (source_url,))
             if cur.fetchone():
+                c.execute(
+                    """UPDATE phip
+                       SET company_name = ?, stock_code = ?, board = ?,
+                           document_type = ?, publish_date = ?, sponsor = ?,
+                           active = 1, updated_at = ?
+                       WHERE source_url = ?""",
+                    (company_name, stock_code, board, document_type,
+                     publish_date, sponsor, now, source_url),
+                )
                 return False
             c.execute(
                 """INSERT INTO phip (source_url, company_name, stock_code, board,
                                      document_type, publish_date, sponsor,
-                                     status, discovered_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, 'DISCOVERED', ?, ?)""",
+                                     active, status, discovered_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, 1, 'DISCOVERED', ?, ?)""",
                 (source_url, company_name, stock_code, board, document_type,
                  publish_date, sponsor, now, now),
             )
             return True
+
+    def sync_active_sources(self, current_urls: Iterable[str], *,
+                            boards: Iterable[str] | None = None,
+                            doc_types: Iterable[str] | None = None) -> int:
+        """Mark tracked PHIPs missing from the latest HKEX active list inactive."""
+        urls = list(current_urls)
+        where = ["active = 1"]
+        params: list = []
+        if boards is not None:
+            boards_list = list(boards)
+            if boards_list:
+                where.append(f"board IN ({','.join('?' * len(boards_list))})")
+                params.extend(boards_list)
+        if doc_types is not None:
+            doc_type_list = list(doc_types)
+            if doc_type_list:
+                where.append(f"document_type IN ({','.join('?' * len(doc_type_list))})")
+                params.extend(doc_type_list)
+        if urls:
+            where.append(f"source_url NOT IN ({','.join('?' * len(urls))})")
+            params.extend(urls)
+        sql = f"UPDATE phip SET active = 0, updated_at = ? WHERE {' AND '.join(where)}"
+        with self.conn() as c:
+            cur = c.execute(sql, [self._now(), *params])
+            return cur.rowcount
 
     def list_pending(self, statuses: Iterable[str] = ("DISCOVERED", "DOWNLOADED", "PARSED"),
                      since_days: int | None = None) -> list[dict]:
@@ -106,7 +144,7 @@ class PhipDB:
         with self.conn() as c:
             rows = c.execute(
                 f"""SELECT * FROM phip
-                    WHERE status IN ({ph}){date_clause}
+                    WHERE active = 1 AND status IN ({ph}){date_clause}
                     ORDER BY CASE status
                                  WHEN 'PARSED' THEN 0
                                  WHEN 'DOWNLOADED' THEN 1

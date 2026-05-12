@@ -399,6 +399,7 @@ def scan_new_phips(config, db) -> list[dict]:
                                         default="Mozilla/5.0"))
 
     all_items: dict[str, dict] = {}
+    active_urls_by_board: dict[str, list[str]] = {}
 
     for board in boards:
         # 多策略合并去重
@@ -412,6 +413,17 @@ def scan_new_phips(config, db) -> list[dict]:
 
         for it in items:
             all_items[it["source_url"]] = it
+        if items:
+            active_urls_by_board[board] = [it["source_url"] for it in items]
+
+    for board, active_urls in active_urls_by_board.items():
+        inactive_count = db.sync_active_sources(active_urls, boards=[board], doc_types=doc_types)
+        if inactive_count:
+            logger.info(
+                "同步 HKEX Active 状态：%d 个历史 PHIP 已不在当前 %s Active 列表",
+                inactive_count,
+                board,
+            )
 
     new_records = []
     for url, item in all_items.items():

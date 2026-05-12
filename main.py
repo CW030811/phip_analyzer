@@ -625,7 +625,7 @@ def daily(ctx, max_items: int, since_days: int, send_empty: bool, to: str | None
                               publish_date, source_url, status, report_path,
                               pdf_pages, discovered_at, updated_at
                        FROM phip
-                       WHERE status != 'FAILED'
+                       WHERE active = 1 AND status != 'FAILED'
                        ORDER BY COALESCE(publish_date, substr(discovered_at,1,10)) DESC,
                                 discovered_at DESC"""
                 ).fetchall()
