@@ -75,50 +75,80 @@ def _filename_for_report(*, cfg, company: str, stock_code: str | None) -> str:
 
 
 def _daily_email_body(*, discovered: list[dict], processed: list[dict],
-                      failed: list[dict], skipped: int) -> str:
+                      failed: list[dict], skipped: int,
+                      active_items: list[dict]) -> str:
+    studied_count = sum(1 for item in active_items if item.get("report_path"))
+    pending_count = len(active_items) - studied_count
     lines = [
         "PHIP Analyzer 每日自动播报",
         "",
-        f"运行日期：{datetime.now().strftime('%Y-%m-%d %H:%M')}",
-        f"新发现 PHIP：{len(discovered)}",
-        f"本次生成深度研报：{len(processed)}",
-        f"失败：{len(failed)}",
+        f"运行时间：{datetime.now().strftime('%Y-%m-%d %H:%M')}",
+        f"当前 Active PHIP 项目：{len(active_items)}",
+        f"已做深度研究：{studied_count}",
+        f"未做深度研究：{pending_count}",
+        f"今日新发现 PHIP：{len(discovered)}",
+        f"本次新生成深度研报：{len(processed)}",
+        f"失败项：{len(failed)}",
         f"未处理 pending：{skipped}",
         "",
     ]
 
+    lines.append("一、当前 Active PHIP 项目清单")
+    if active_items:
+        for idx, item in enumerate(active_items, 1):
+            report_path = item.get("report_path")
+            research_status = "已做深度研究" if report_path else "未做深度研究"
+            status = item.get("status") or "UNKNOWN"
+            board = item.get("board") or "unknown"
+            publish_date = item.get("publish_date") or item.get("discovered_at") or "未知日期"
+            company = item.get("company_name") or "未知公司"
+            source_url = item.get("source_url") or ""
+            lines.append(
+                f"{idx}. {company} | {publish_date} | {board} | "
+                f"系统状态：{status} | 研究状态：{research_status}"
+            )
+            if report_path:
+                lines.append(f"   研报路径：{report_path}")
+            if source_url:
+                lines.append(f"   PHIP 来源：{source_url}")
+    else:
+        lines.append("数据库内暂无 Active PHIP 项目。")
+    lines.append("")
+
+    lines.append("二、今日新发现")
     if discovered:
-        lines.append("一、新发现")
         for item in discovered:
             lines.append(
                 f"- {item.get('company_name') or '未知公司'} | "
                 f"{item.get('publish_date') or '未知日期'} | {item.get('source_url')}"
             )
-        lines.append("")
+    else:
+        lines.append("- 今日未发现新增 PHIP。")
+    lines.append("")
 
+    lines.append("三、本次新生成深度研报")
     if processed:
-        lines.append("二、本次生成报告")
         for item in processed:
             lines.append(
                 f"- {item.get('company_name') or '未知公司'} | "
                 f"{item.get('report_path')}"
             )
-        lines.append("")
+    else:
+        lines.append("- 本次没有新生成深度研报。")
+    lines.append("")
 
+    lines.append("四、失败项")
     if failed:
-        lines.append("三、失败项")
         for item in failed:
             lines.append(
                 f"- {item.get('company_name') or '未知公司'} | "
                 f"{item.get('error')}"
             )
-        lines.append("")
+    else:
+        lines.append("- 本次没有失败项。")
+    lines.append("")
 
-    if not discovered and not processed and not failed:
-        lines.append("今日没有新增 PHIP，也没有待处理报告。任务已正常运行。")
-        lines.append("")
-
-    lines.append("附件为本次新生成的 Word 研报；若无附件，说明今日无需生成新深度报告。")
+    lines.append("附件仅包含本次新生成的 Word 研报；如无附件，说明本次没有生成新的深度报告。")
     return "\n".join(lines)
 
 
@@ -588,6 +618,19 @@ def daily(ctx, max_items: int, since_days: int, send_empty: bool, to: str | None
             console.print("[yellow]No updates and heartbeat email disabled[/yellow]")
             return
 
+        with db.conn() as c:
+            active_items = [
+                dict(r) for r in c.execute(
+                    """SELECT company_name, stock_code, board, document_type,
+                              publish_date, source_url, status, report_path,
+                              pdf_pages, discovered_at, updated_at
+                       FROM phip
+                       WHERE status != 'FAILED'
+                       ORDER BY COALESCE(publish_date, substr(discovered_at,1,10)) DESC,
+                                discovered_at DESC"""
+                ).fetchall()
+            ]
+
         subject = (
             f"PHIP 自动播报 {date.today().isoformat()} | "
             f"新增{len(discovered)} 研报{len(processed)} 失败{len(failed)}"
@@ -597,6 +640,7 @@ def daily(ctx, max_items: int, since_days: int, send_empty: bool, to: str | None
             processed=processed,
             failed=failed,
             skipped=skipped,
+            active_items=active_items,
         )
         attachments = [item["report_path"] for item in processed]
         email_cfg = EmailConfig.from_env(default_to=to)
